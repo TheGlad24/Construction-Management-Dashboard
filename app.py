@@ -5,7 +5,7 @@ import plotly.express as px
 
 st.set_page_config(page_title="Construction Portfolio Dashboard", layout="wide")
 
-# ---------- Config: files are in the SAME FOLDER as this app ----------
+# ---------- Files (same folder as this app) ----------
 FORMS_FILE = "Construction_Data_PM_Forms_All_Projects.csv"
 TASKS_FILE = "Construction_Data_PM_Tasks_All_Projects.csv"
 
@@ -14,9 +14,9 @@ TASKS_FILE = "Construction_Data_PM_Tasks_All_Projects.csv"
 def load_csvs():
     forms = pd.read_csv(FORMS_FILE)
     tasks = pd.read_csv(TASKS_FILE)
-    # Try to parse some common date columns if present
+    # try parsing some date columns if present
     for df in (forms, tasks):
-        for c in ["StartDate", "EndDate", "Created", "Opened", "Reported", "Date"]:
+        for c in ["StartDate", "EndDate", "Created", "Opened", "Reported", "Date", "Status Changed"]:
             if c in df.columns:
                 df[c] = pd.to_datetime(df[c], errors="coerce")
     return forms, tasks
@@ -26,16 +26,21 @@ forms, tasks = load_csvs()
 st.title("Construction Portfolio Dashboard")
 st.caption(f"Loaded: {FORMS_FILE} and {TASKS_FILE}")
 
-# ---------- Light auto-detection of common columns (case-insensitive) ----------
+# ---------- Helpers ----------
 def pick(df, candidates):
-    cols = {c.lower(): c for c in df.columns}
+    """Return first present column name from candidates (case-insensitive)."""
+    cmap = {c.lower(): c for c in df.columns}
     for c in candidates:
-        if c.lower() in cols:
-            return cols[c.lower()]
+        if c.lower() in cmap:
+            return cmap[c.lower()]
     return None
 
-# Forms side
-F_PROJ_NAME = pick(forms, ["ProjectName","Name","Title","Project"])
+def uniq(df, col):
+    return sorted(df[col].dropna().astype(str).unique()) if col and col in df.columns else []
+
+# ---------- Column guesses ----------
+# Forms
+F_PROJ_NAME = pick(forms, ["ProjectName","Name","Title","Project Name","Form Name"])
 F_STATUS    = pick(forms, ["Status","Report Forms Status","Report Status"])
 F_OWNER     = pick(forms, ["Owner","Department","Group","Report Forms Group","Report Group"])
 F_PRIORITY  = pick(forms, ["Priority","Risk","Severity"])
@@ -44,20 +49,22 @@ F_SPENT     = pick(forms, ["Spent","Actual Cost","Actuals","Cost Spent","Expendi
 F_PROGRESS  = pick(forms, ["Progress","KPI_Progress","Percent Complete","% Complete","Completion"])
 F_ID        = pick(forms, ["ProjectID","Ref","ID","Project Ref","Project"])
 
-# Tasks side
+# Tasks
 T_TASK_NAME = pick(tasks, ["TaskName","Description","Title","Activity"])
 T_STATUS    = pick(tasks, ["Status","Report Status"])
-T_LINK      = pick(tasks, ["project","Project","Ref","ProjectID","Parent","Parent Ref"])
 T_START     = pick(tasks, ["StartDate","Start","Begin"])
 T_END       = pick(tasks, ["EndDate","End","Finish"])
 T_COMPLETE  = pick(tasks, ["Completion","% Complete","Percent Complete","Progress"])
 
-# Numeric conversions
+# DEFAULT JOIN: forms.Project ↔ tasks.project
+JOIN_LEFT = "Project" if "Project" in forms.columns else F_ID or F_PROJ_NAME
+JOIN_RIGHT = "project" if "project" in tasks.columns else F_ID or F_PROJ_NAME
+
+# ---------- Numeric conversions and derived fields ----------
 for c in [F_BUDGET, F_SPENT, F_PROGRESS]:
     if c and c in forms.columns:
         forms[c] = pd.to_numeric(forms[c], errors="coerce")
 
-# Derived fields on forms
 forms["Variance"] = np.nan
 forms["OverBudget"] = False
 if F_BUDGET and F_SPENT:
@@ -66,7 +73,7 @@ if F_BUDGET and F_SPENT:
 
 forms["_progress"] = pd.to_numeric(forms[F_PROGRESS], errors="coerce") if F_PROGRESS else np.nan
 
-# Compute task durations if we have dates
+# Task durations and slippage
 if T_START and T_END:
     tasks["ActualDays"] = (pd.to_datetime(tasks[T_END], errors="coerce") - pd.to_datetime(tasks[T_START], errors="coerce")).dt.days
     if "PlannedDays" not in tasks.columns or tasks["PlannedDays"].isna().all():
@@ -77,11 +84,8 @@ else:
     tasks["PlannedDays"] = np.nan
     tasks["ScheduleSlip"] = False
 
-# ---------- Sidebar Filters (only if columns exist) ----------
+# ---------- Sidebar Filters ----------
 st.sidebar.header("Filters")
-def uniq(df, col):
-    return sorted(df[col].dropna().astype(str).unique()) if col and col in df.columns else []
-
 status_vals = uniq(forms, F_STATUS)
 owner_vals  = uniq(forms, F_OWNER)
 prio_vals   = uniq(forms, F_PRIORITY)
@@ -91,9 +95,9 @@ owner_sel  = st.sidebar.multiselect("Owner", owner_vals, default=owner_vals)
 prio_sel   = st.sidebar.multiselect("Priority", prio_vals, default=prio_vals)
 
 filt = forms.copy()
-if F_STATUS:  filt = filt[filt[F_STATUS].astype(str).isin(status_sel)]
-if F_OWNER:   filt = filt[filt[F_OWNER].astype(str).isin(owner_sel)]
-if F_PRIORITY:filt = filt[filt[F_PRIORITY].astype(str).isin(prio_sel)]
+if F_STATUS:   filt = filt[filt[F_STATUS].astype(str).isin(status_sel)]
+if F_OWNER:    filt = filt[filt[F_OWNER].astype(str).isin(owner_sel)]
+if F_PRIORITY: filt = filt[filt[F_PRIORITY].astype(str).isin(prio_sel)]
 
 # ---------- KPIs ----------
 k1, k2, k3, k4 = st.columns(4)
@@ -110,7 +114,7 @@ if "OverBudget" in filt.columns:
     st.metric("Over Budget Rate", f"{over_rate:.1f}%")
 
 # ---------- Charts ----------
-if F_BUDGET and F_SPENT and F_PROJ_NAME:
+if F_BUDGET, F_SPENT, F_PROJ_NAME:
     st.subheader("Budget vs Spent")
     fig1 = px.bar(filt, x=F_PROJ_NAME, y=[F_BUDGET, F_SPENT], barmode="group")
     st.plotly_chart(fig1, use_container_width=True)
@@ -130,7 +134,7 @@ df_show = filt[cols_show] if cols_show else filt
 sort_cols = [c for c in [F_STATUS, F_PRIORITY, F_PROJ_NAME] if c and c in df_show.columns]
 if sort_cols:
     df_show = df_show.sort_values(by=sort_cols, na_position="last")
-st.dataframe(df_show)
+st.dataframe(df_show, use_container_width=True)
 
 # ---------- Drilldown ----------
 st.subheader("Project Drilldown")
@@ -143,29 +147,35 @@ if F_PROJ_NAME:
         choice = st.selectbox("Select a project", proj_names)
         left_row = filt[filt[F_PROJ_NAME].astype(str) == choice].head(1)
 
-        # Best-guess join key: prefer Ref→project, else by name if present on tasks
-        join_candidates = []
-        if F_ID and T_LINK: join_candidates.append(("forms", F_ID, "tasks", T_LINK))
-        if F_PROJ_NAME and T_LINK: join_candidates.append(("forms", F_PROJ_NAME, "tasks", T_LINK))
-        if F_PROJ_NAME and F_PROJ_NAME in tasks.columns: join_candidates.append(("forms", F_PROJ_NAME, "tasks", F_PROJ_NAME))
-
+        # Use default join: forms.Project ↔ tasks.project, else fallbacks
         proj_tasks = pd.DataFrame()
-        for _, lk, _, rk in join_candidates:
+        join_pairs = []
+
+        # Preferred join
+        if "Project" in forms.columns and "project" in tasks.columns:
+            join_pairs.append(("Project", "project"))
+
+        # Fallbacks
+        if F_ID and F_ID in forms.columns and F_ID in tasks.columns:
+            join_pairs.append((F_ID, F_ID))
+        if F_PROJ_NAME in tasks.columns:
+            join_pairs.append((F_PROJ_NAME, F_PROJ_NAME))
+
+        for lk, rk in join_pairs:
             if lk in left_row.columns and rk in tasks.columns:
                 key_val = str(left_row.iloc[0][lk])
                 tmp = tasks[tasks[rk].astype(str) == key_val]
-                if len(tmp) > 0:
+                if not tmp.empty:
                     proj_tasks = tmp.copy()
                     break
 
         if proj_tasks.empty:
-            st.info("No tasks found for this project with the default join. Ensure your tasks file has a column that matches the project's Ref or Name.")
+            st.info("No tasks found for this project with the current join (Project ↔ project). Check that your tasks file has a matching 'project' value.")
         else:
             st.write(f"Tasks for **{choice}**")
 
-            # Gantt (only if we have start and end and task name)
+            # Gantt if we have names + dates
             if T_TASK_NAME and T_START and T_END and all(c in proj_tasks.columns for c in [T_TASK_NAME, T_START, T_END]):
-                # Ensure planned/actual and slip flags are present
                 if "ActualDays" not in proj_tasks.columns or proj_tasks["ActualDays"].isna().all():
                     proj_tasks["ActualDays"] = (pd.to_datetime(proj_tasks[T_END], errors="coerce") - pd.to_datetime(proj_tasks[T_START], errors="coerce")).dt.days
                 if "PlannedDays" not in proj_tasks.columns or proj_tasks["PlannedDays"].isna().all():
@@ -182,6 +192,6 @@ if F_PROJ_NAME:
 
             # Task table
             show_tcols = [c for c in [T_TASK_NAME, T_STATUS, T_COMPLETE, "PlannedDays", "ActualDays", "ScheduleSlip"] if c and (c in proj_tasks.columns or c in ["PlannedDays","ActualDays","ScheduleSlip"])]
-            st.dataframe(proj_tasks[show_tcols] if show_tcols else proj_tasks)
+            st.dataframe(proj_tasks[show_tcols] if show_tcols else proj_tasks, use_container_width=True)
 else:
     st.info("Could not find a project name column in forms. Make sure your forms file has something like 'Name' or 'ProjectName'.")
