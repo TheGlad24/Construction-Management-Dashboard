@@ -5,8 +5,8 @@ import plotly.express as px
 
 st.set_page_config(page_title="Construction Portfolio Dashboard", layout="wide")
 
-FORMS_PATH = "data/Construction_Data_PM_Forms_All_Projects.csv"
-TASKS_PATH = "data/Construction_Data_PM_Tasks_All_Projects.csv"
+FORMS_PATH = "Construction_Data_PM_Forms_All_Projects.csv"
+TASKS_PATH = "Construction_Data_PM_Tasks_All_Projects.csv"
 
 # ---- helpers ---------------------------------------------------------------
 
@@ -283,3 +283,4 @@ if project_choice and left_key and right_key and left_key in filt.columns and ri
         st.info("Set task name and date columns in the mapping above to see the Gantt chart.")
 else:
     st.caption("Set join keys that match a common value between forms and tasks, for example Forms.Ref ↔ Tasks.project.")
+
