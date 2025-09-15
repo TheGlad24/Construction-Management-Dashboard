@@ -114,7 +114,7 @@ if "OverBudget" in filt.columns:
     st.metric("Over Budget Rate", f"{over_rate:.1f}%")
 
 # ---------- Charts ----------
-if F_BUDGET, F_SPENT, F_PROJ_NAME:
+if F_BUDGET and F_SPENT and F_PROJ_NAME:
     st.subheader("Budget vs Spent")
     fig1 = px.bar(filt, x=F_PROJ_NAME, y=[F_BUDGET, F_SPENT], barmode="group")
     st.plotly_chart(fig1, use_container_width=True)
@@ -195,3 +195,4 @@ if F_PROJ_NAME:
             st.dataframe(proj_tasks[show_tcols] if show_tcols else proj_tasks, use_container_width=True)
 else:
     st.info("Could not find a project name column in forms. Make sure your forms file has something like 'Name' or 'ProjectName'.")
+
