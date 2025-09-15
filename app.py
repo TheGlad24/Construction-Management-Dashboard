@@ -113,6 +113,29 @@ if "OverBudget" in filt.columns:
     over_rate = float(filt["OverBudget"].mean()*100) if len(filt) else 0.0
     st.metric("Over Budget Rate", f"{over_rate:.1f}%")
 
+import plotly.express as px
+
+# ---- Project Status Distribution ----
+status_counts = forms['Status'].value_counts().reset_index()
+status_counts.columns = ['Status', 'Count']
+fig_status = px.pie(status_counts, names='Status', values='Count', title='Project Status Distribution')
+st.plotly_chart(fig_status, use_container_width=True)
+
+# ---- Budget vs Spent ----
+if 'Budget' in forms.columns and 'Spent' in forms.columns:
+    budget_data = forms[['Name', 'Budget', 'Spent']].dropna()
+    fig_budget = px.bar(budget_data, x='Name', y=['Budget', 'Spent'], barmode='group', title='Budget vs Spent')
+    st.plotly_chart(fig_budget, use_container_width=True)
+
+# ---- Task Completion ----
+task_progress = tasks.groupby('Project').apply(
+    lambda x: (x['Status'] == 'Closed').sum() / len(x) * 100 if len(x) > 0 else 0
+).reset_index()
+task_progress.columns = ['Project', 'Completion %']
+fig_tasks = px.bar(task_progress, x='Project', y='Completion %', title='Task Completion % by Project')
+st.plotly_chart(fig_tasks, use_container_width=True)
+
+
 # ---------- Charts ----------
 if F_BUDGET and F_SPENT and F_PROJ_NAME:
     st.subheader("Budget vs Spent")
@@ -195,4 +218,5 @@ if F_PROJ_NAME:
             st.dataframe(proj_tasks[show_tcols] if show_tcols else proj_tasks, use_container_width=True)
 else:
     st.info("Could not find a project name column in forms. Make sure your forms file has something like 'Name' or 'ProjectName'.")
+
 
